@@ -818,6 +818,13 @@ def build_environment_hints() -> str:
 
 
 CONTEXT_FILE_MAX_CHARS = 20_000
+# SOUL.md is the governance/identity file. It gets its own, larger cap so a
+# growing governance document is not silently cut in the middle. Override
+# with HERMES_SOUL_MAX_CHARS. Truncation of SOUL.md is logged at WARNING.
+try:
+    SOUL_MD_MAX_CHARS = int(os.environ.get("HERMES_SOUL_MAX_CHARS", "60000"))
+except ValueError:
+    SOUL_MD_MAX_CHARS = 60_000
 CONTEXT_TRUNCATE_HEAD_RATIO = 0.7
 CONTEXT_TRUNCATE_TAIL_RATIO = 0.2
 
@@ -1318,7 +1325,13 @@ def load_soul_md() -> Optional[str]:
         if not content:
             return None
         content = _scan_context_content(content, "SOUL.md")
-        content = _truncate_content(content, "SOUL.md")
+        if len(content) > SOUL_MD_MAX_CHARS:
+            logger.warning(
+                "SOUL.md is %d chars, over the %d char cap; truncating. "
+                "Governance content may be missing from the system prompt.",
+                len(content), SOUL_MD_MAX_CHARS,
+            )
+        content = _truncate_content(content, "SOUL.md", max_chars=SOUL_MD_MAX_CHARS)
         return content
     except Exception as e:
         logger.debug("Could not read SOUL.md from %s: %s", soul_path, e)

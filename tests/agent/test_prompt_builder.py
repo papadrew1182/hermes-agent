@@ -19,7 +19,9 @@ from agent.prompt_builder import (
     build_nous_subscription_prompt,
     build_context_files_prompt,
     build_environment_hints,
+    load_soul_md,
     CONTEXT_FILE_MAX_CHARS,
+    SOUL_MD_MAX_CHARS,
     DEFAULT_AGENT_IDENTITY,
     TOOL_USE_ENFORCEMENT_GUIDANCE,
     TOOL_USE_ENFORCEMENT_MODELS,
@@ -1194,4 +1196,40 @@ class TestOpenAIModelExecutionGuidance:
 # =========================================================================
 
 
+# =========================================================================
+# SOUL.md cap — governance file gets its own, larger, loudly-logged limit
+# =========================================================================
 
+
+class TestSoulMdCap:
+    def _write_soul(self, tmp_path, monkeypatch, content):
+        hermes_home = tmp_path / "hermes_home"
+        hermes_home.mkdir()
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        (hermes_home / "SOUL.md").write_text(content, encoding="utf-8")
+
+    def test_soul_cap_exceeds_generic_context_cap(self):
+        assert SOUL_MD_MAX_CHARS > CONTEXT_FILE_MAX_CHARS
+
+    def test_soul_over_generic_cap_but_under_soul_cap_loads_intact(self, tmp_path, monkeypatch, caplog):
+        content = "HEAD " + ("g" * (CONTEXT_FILE_MAX_CHARS + 10_000)) + " TAIL"
+        assert len(content) < SOUL_MD_MAX_CHARS
+        self._write_soul(tmp_path, monkeypatch, content)
+        with caplog.at_level(logging.WARNING, logger="agent.prompt_builder"):
+            result = load_soul_md()
+        assert result == content
+        assert "truncated" not in result.lower()
+        assert not [r for r in caplog.records if "SOUL.md" in r.getMessage()]
+
+    def test_soul_over_soul_cap_truncates_and_warns(self, tmp_path, monkeypatch, caplog):
+        content = "HEAD " + ("g" * (SOUL_MD_MAX_CHARS + 10_000)) + " TAIL"
+        self._write_soul(tmp_path, monkeypatch, content)
+        with caplog.at_level(logging.WARNING, logger="agent.prompt_builder"):
+            result = load_soul_md()
+        assert len(result) < len(content)
+        assert "truncated SOUL.md" in result
+        assert result.startswith("HEAD ")
+        assert result.endswith(" TAIL")
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "SOUL.md" in r.getMessage()]
+        assert len(warnings) == 1
+        assert str(SOUL_MD_MAX_CHARS) in warnings[0].getMessage()
