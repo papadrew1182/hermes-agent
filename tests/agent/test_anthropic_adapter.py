@@ -1192,6 +1192,40 @@ class TestBuildAnthropicKwargs:
         assert _forbids_sampling_params("claude-opus-4-6") is False
         assert _forbids_sampling_params("claude-sonnet-4-5") is False
 
+    def test_reasoning_config_maps_to_adaptive_thinking_for_claude_5_models(self):
+        # Claude 5 family (Opus 5, Sonnet 5, Fable) uses adaptive thinking +
+        # output_config.effort; the legacy enabled/budget_tokens path 400s.
+        kwargs = build_anthropic_kwargs(
+            model="claude-opus-5",
+            messages=[{"role": "user", "content": "think hard"}],
+            tools=None,
+            max_tokens=4096,
+            reasoning_config={"enabled": True, "effort": "high"},
+        )
+        assert kwargs["thinking"] == {"type": "adaptive", "display": "summarized"}
+        assert kwargs["output_config"] == {"effort": "high"}
+        assert "budget_tokens" not in kwargs["thinking"]
+        assert "temperature" not in kwargs
+
+    def test_reasoning_config_preserves_xhigh_for_claude_5_models(self):
+        kwargs = build_anthropic_kwargs(
+            model="claude-opus-5",
+            messages=[{"role": "user", "content": "think harder"}],
+            tools=None,
+            max_tokens=4096,
+            reasoning_config={"enabled": True, "effort": "xhigh"},
+        )
+        assert kwargs["thinking"] == {"type": "adaptive", "display": "summarized"}
+        assert kwargs["output_config"] == {"effort": "xhigh"}
+
+    def test_claude_5_family_strips_sampling_params(self):
+        from agent.anthropic_adapter import _forbids_sampling_params
+        assert _forbids_sampling_params("claude-opus-5") is True
+        assert _forbids_sampling_params("claude-sonnet-5") is True
+        assert _forbids_sampling_params("claude-fable-5-1") is True
+        assert _forbids_sampling_params("claude-opus-4-6") is False
+        assert _forbids_sampling_params("claude-sonnet-4-5") is False
+
     def test_supports_fast_mode_predicate(self):
         """Fast mode is Opus 4.6 only — Opus 4.7 and others must be excluded."""
         from agent.anthropic_adapter import _supports_fast_mode
